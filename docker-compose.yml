@@ -1,0 +1,252 @@
+name: pushpak-hyva
+services:
+  db:
+    command:
+    - mysqld
+    - --max_allowed_packet=1024M
+    - --explicit_defaults_for_timestamp=on
+    environment:
+      MYSQL_DATABASE: magento
+      MYSQL_HISTFILE: /sql_history/.sql_history
+      MYSQL_PASSWORD: magento
+      MYSQL_ROOT_PASSWORD: magento
+      MYSQL_USER: magento
+    hostname: pushpak-hyva-mariadb
+    image: docker.io/wardenenv/mariadb:10.6
+    networks:
+      default: null
+    volumes:
+    - type: volume
+      source: sqlhistory
+      target: /sql_history
+      volume: {}
+    - type: volume
+      source: dbdata
+      target: /var/lib/mysql
+      volume: {}
+  nginx:
+    depends_on:
+      php-fpm:
+        condition: service_started
+    environment:
+      NGINX_PUBLIC: /pub
+      NGINX_TEMPLATE: magento2.conf
+      XDEBUG_CONNECT_BACK_HOST: ''''''
+    hostname: pushpak-hyva-nginx
+    image: docker.io/wardenenv/nginx:1.16
+    labels:
+      traefik.docker.network: pushpak-hyva_default
+      traefik.enable: "false"
+      traefik.http.routers.pushpak-hyva-nginx.priority: "2"
+      traefik.http.routers.pushpak-hyva-nginx.rule: ' HostRegexp(`{subdomain:.+}.pushpak.test`)
+        || Host(`pushpak.test`)'
+      traefik.http.routers.pushpak-hyva-nginx.tls: "true"
+      traefik.http.services.pushpak-hyva-nginx.loadbalancer.server.port: "80"
+    networks:
+      default: null
+    volumes:
+    - type: bind
+      source: /home/pushpak/Desktop/pushpak-hyva
+      target: /var/www/html
+      bind:
+        create_host_path: true
+  opensearch:
+    environment:
+      DISABLE_SECURITY_PLUGIN: "true"
+      ES_JAVA_OPTS: -Xms64m -Xmx512m
+      discovery.type: single-node
+    hostname: pushpak-hyva-opensearch
+    image: docker.io/wardenenv/opensearch:2.5
+    labels:
+      traefik.docker.network: pushpak-hyva_default
+      traefik.enable: "true"
+      traefik.http.routers.pushpak-hyva-opensearch.rule: Host(`opensearch.pushpak.test`)
+      traefik.http.routers.pushpak-hyva-opensearch.tls: "true"
+      traefik.http.services.pushpak-hyva-opensearch.loadbalancer.server.port: "9200"
+    networks:
+      default: null
+    volumes:
+    - type: volume
+      source: osdata
+      target: /usr/share/opensearch/data
+      volume: {}
+  php-debug:
+    depends_on:
+      php-fpm:
+        condition: service_started
+    environment:
+      CHOWN_DIR_LIST: '/bash_history /home/www-data/.ssh '
+      COMPOSER_MEMORY_LIMIT: "-1"
+      COMPOSER_VERSION: "2.2"
+      HISTFILE: /bash_history/.bash_history
+      MAGE_DEBUG_SHOW_ARGS: "1"
+      NODE_VERSION: "12"
+      PHP_IDE_CONFIG: serverName=pushpak-hyva-docker
+      SSH_AUTH_SOCK: /tmp/ssh-auth.sock
+      TRAEFIK_DOMAIN: pushpak.test
+      TRAEFIK_SUBDOMAIN: app
+    extra_hosts:
+    - app.pushpak.test:172.22.0.4
+    - pushpak.test:172.22.0.4
+    hostname: pushpak-hyva-php-debug
+    image: docker.io/wardenenv/php-fpm:8.1-magento2-xdebug3
+    networks:
+      default: null
+    volumes:
+    - type: volume
+      source: bashhistory
+      target: /bash_history
+      volume: {}
+    - type: bind
+      source: /home/pushpak/.warden/ssl/rootca/certs
+      target: /etc/ssl/warden-rootca-cert
+      read_only: true
+      bind:
+        create_host_path: true
+    - type: bind
+      source: /home/pushpak/.composer
+      target: /home/www-data/.composer
+      bind:
+        create_host_path: true
+    - type: volume
+      source: sshdirectory
+      target: /home/www-data/.ssh
+      volume: {}
+    - type: bind
+      source: /run/user/1002/keyring/ssh
+      target: /run/host-services/ssh-auth.sock
+      bind:
+        create_host_path: true
+    - type: bind
+      source: /home/pushpak/Desktop/pushpak-hyva
+      target: /var/www/html
+      bind:
+        create_host_path: true
+  php-fpm:
+    depends_on:
+      db:
+        condition: service_started
+    environment:
+      CHOWN_DIR_LIST: '/bash_history /home/www-data/.ssh '
+      COMPOSER_MEMORY_LIMIT: "-1"
+      COMPOSER_VERSION: "2.2"
+      HISTFILE: /bash_history/.bash_history
+      MAGE_DEBUG_SHOW_ARGS: "1"
+      NODE_VERSION: "12"
+      SSH_AUTH_SOCK: /tmp/ssh-auth.sock
+      TRAEFIK_DOMAIN: pushpak.test
+      TRAEFIK_SUBDOMAIN: app
+    extra_hosts:
+    - app.pushpak.test:172.22.0.4
+    - pushpak.test:172.22.0.4
+    hostname: pushpak-hyva-php-fpm
+    image: docker.io/wardenenv/php-fpm:8.1-magento2
+    labels:
+      traefik.docker.network: pushpak-hyva_default
+      traefik.enable: "true"
+      traefik.http.routers.pushpak-hyva-livereload.priority: "3"
+      traefik.http.routers.pushpak-hyva-livereload.rule: ' (HostRegexp(`{subdomain:.+}.pushpak.test`)
+        || Host(`pushpak.test`)) && (Path(`/livereload.js`) || Path(`/livereload`))'
+      traefik.http.routers.pushpak-hyva-livereload.service: pushpak-hyva-livereload
+      traefik.http.routers.pushpak-hyva-livereload.tls: "true"
+      traefik.http.services.pushpak-hyva-livereload.loadbalancer.server.port: "35729"
+    networks:
+      default: null
+    volumes:
+    - type: volume
+      source: bashhistory
+      target: /bash_history
+      volume: {}
+    - type: bind
+      source: /home/pushpak/.warden/ssl/rootca/certs
+      target: /etc/ssl/warden-rootca-cert
+      read_only: true
+      bind:
+        create_host_path: true
+    - type: bind
+      source: /home/pushpak/.composer
+      target: /home/www-data/.composer
+      bind:
+        create_host_path: true
+    - type: volume
+      source: sshdirectory
+      target: /home/www-data/.ssh
+      volume: {}
+    - type: bind
+      source: /run/user/1002/keyring/ssh
+      target: /run/host-services/ssh-auth.sock
+      bind:
+        create_host_path: true
+    - type: bind
+      source: /home/pushpak/Desktop/pushpak-hyva
+      target: /var/www/html
+      bind:
+        create_host_path: true
+  rabbitmq:
+    hostname: pushpak-hyva-rabbitmq
+    image: docker.io/wardenenv/rabbitmq:3.9
+    labels:
+      traefik.docker.network: pushpak-hyva_default
+      traefik.enable: "true"
+      traefik.http.routers.pushpak-hyva-rabbitmq.rule: Host(`rabbitmq.pushpak.test`)
+      traefik.http.routers.pushpak-hyva-rabbitmq.tls: "true"
+      traefik.http.services.pushpak-hyva-rabbitmq.loadbalancer.server.port: "15672"
+    networks:
+      default: null
+    volumes:
+    - type: volume
+      source: rabbitmq
+      target: /var/lib/rabbitmq
+      volume: {}
+  redis:
+    hostname: pushpak-hyva-redis
+    image: docker.io/wardenenv/redis:7.0
+    networks:
+      default: null
+    volumes:
+    - type: volume
+      source: redis
+      target: /data
+      volume: {}
+  varnish:
+    depends_on:
+      nginx:
+        condition: service_started
+    hostname: pushpak-hyva-varnish
+    image: docker.io/wardenenv/varnish:7.1
+    labels:
+      traefik.docker.network: pushpak-hyva_default
+      traefik.enable: "true"
+      traefik.http.routers.pushpak-hyva-varnish.priority: "1"
+      traefik.http.routers.pushpak-hyva-varnish.rule: ' HostRegexp(`{subdomain:.+}.pushpak.test`)
+        || Host(`pushpak.test`)'
+      traefik.http.routers.pushpak-hyva-varnish.tls: "true"
+      traefik.http.services.pushpak-hyva-varnish.loadbalancer.server.port: "80"
+    networks:
+      default: null
+networks:
+  default:
+    name: pushpak-hyva_default
+    labels:
+      dev.warden.environment.name: pushpak-hyva
+      dev.warden.environment.type: magento2
+volumes:
+  bashhistory:
+    name: pushpak-hyva_bashhistory
+  dbdata:
+    name: pushpak-hyva_dbdata
+  osdata:
+    name: pushpak-hyva_osdata
+  rabbitmq:
+    name: pushpak-hyva_rabbitmq
+  redis:
+    name: pushpak-hyva_redis
+  sqlhistory:
+    name: pushpak-hyva_sqlhistory
+  sshdirectory:
+    name: pushpak-hyva_sshdirectory
+x-extra_hosts:
+- pushpak.test:172.22.0.4
+- app.pushpak.test:172.22.0.4
+x-volumes:
+- /run/user/1002/keyring/ssh:/run/host-services/ssh-auth.sock
